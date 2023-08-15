@@ -1,0 +1,122 @@
+---
+output: github_document
+knit: (function(input, ...) { rmarkdown::render(input, output_file = "README.md", envir = globalenv()) })
+---
+
+### Loading Packages
+
+```{r message = F, warning = F, include = F}
+library(tidyverse) # essential functions
+library(tidymodels) # for modeling
+library(tvthemes) # for custom theme
+library(janitor) # cleaning data names
+library(maps) # adding map to ggplot
+
+# custom ggplot theme
+theme_custom = theme_avatar() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5, size = 9, vjust = 2.5, face = "italic"),
+        plot.caption = element_text(face = "italic"),
+        panel.grid.major = element_line(linewidth = 0.5, colour = "#DFDAD1"),
+        panel.grid.minor = element_line(linewidth = 0.5, colour = "#DFDAD1"))
+
+# setting custom theme
+theme_set(theme_custom)
+```
+
+### Data Import
+
+```{r}
+train = read_csv("data/train.csv", col_types = cols())
+test = read_csv("data/test.csv", col_types = cols())
+sample_submission = read_csv("data/sample_submission.csv", col_types = cols())
+
+paste0(
+  "Training data: ",
+  nrow(train),
+  " rows, ",
+  ncol(train),
+  " columns"
+)
+```
+
+### Finding Missing Data
+
+```{r}
+paste0(
+  "Missing training data percentage: ",
+  paste0(round(sum(is.na(train)) / (nrow(train) * ncol(train)) * 100, 2), "%")
+)
+
+paste0(
+  "Missing testing data percentage: ",
+  paste0(round(sum(is.na(test)) / (nrow(test) * ncol(test)) * 100, 2), "%")
+)
+```
+
+### EDA: Emissions by Week
+
+```{r}
+train |>
+  group_by(year, week_no) |>
+  summarise(emissions = mean(emission),
+            .groups = "drop") |>
+  arrange(year, week_no) |>
+  add_rowindex() |>
+  ggplot(aes(week_no, emissions)) +
+  geom_line(aes(col = as.character(year)), linewidth = 1.5) +
+  labs(x = "Week Number", y = "Emissions", title = "Emissions by Week", col = NULL) +
+  scale_x_continuous(breaks = seq(0, 52, by = 2)) +
+  scale_y_continuous(breaks = seq(0, 150, by = 5))
+```
+
+### EDA: Map of Emissions
+
+```{r}
+world_map = maps::map("world", plot = F, fill = T)
+world_map_df = fortify(world_map)
+
+train |>
+  group_by(latitude, longitude) |>
+  summarise(mean_emissions = mean(emission),
+            .groups = "drop") |>
+  ggplot() +
+  geom_point(aes(x = longitude, y = latitude, col = mean_emissions, size = mean_emissions),
+             show.legend = F) +
+  geom_polygon(data = world_map_df, aes(x = long, y = lat, group = group),
+               fill = "transparent", col = "black") +
+  scale_color_gradient(low = "#84A581", high = "#E68585") +
+  coord_cartesian(xlim = c(min(train$longitude), max(train$longitude)),
+                  ylim = c(min(train$latitude), max(train$latitude))) +
+  scale_x_continuous(breaks = seq(25, 35, by = 0.25)) +
+  scale_y_continuous(breaks = seq(-4, 0, by = 0.25)) +
+  labs(x = "Latitude", y = "Longitude",
+       title = "Quick Map of Emissions",
+       subtitle = "Larger + redder points = more emissions")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
