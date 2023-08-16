@@ -11,6 +11,7 @@ library(tidymodels) # for modeling
 library(tvthemes) # for custom theme
 library(janitor) # cleaning data names
 library(maps) # adding map to ggplot
+library(caret) # NA imputation
 
 # custom ggplot theme
 theme_custom = theme_avatar() +
@@ -94,6 +95,64 @@ train |>
        title = "Quick Map of Emissions",
        subtitle = "Larger + redder points = more emissions")
 ```
+
+### EDA: Distribution of Logarithmized Emissions
+
+```{r}
+train |>
+  mutate(log_emission = log(emission),
+         log_emission = ifelse(log_emission == -Inf, 0, log_emission),
+         year = as.character(year)) |>
+  ggplot(aes(log_emission)) +
+  geom_density(aes(fill = year), alpha = 0.75, col = "transparent") +
+  facet_wrap(vars(year), nrow = 3, strip.position = "right") +
+  labs(x = "Logarithmized Emissions", y = "Density", fill = NULL,
+       title = "Distributions of Logarithmized Emissions by Year",
+       subtitle = "Logarithmized to adjust for right-skew") +
+  scale_x_continuous(breaks = seq(-15, 15, by = 1)) +
+  theme(legend.position = "right",
+        strip.text.y = element_blank())
+```
+
+### NA Imputation
+
+```{r}
+train_no_id = train |>
+  select(-ID_LAT_LON_YEAR_WEEK)
+
+imputed_df = preProcess(train_no_id, method = "bagImpute")
+
+train2 = predict(imputed_df, newdata = train_no_id) |>
+  mutate(ID_LAT_LON_YEAR_WEEK = train$ID_LAT_LON_YEAR_WEEK) |>
+  select(76, 1:75)
+
+test_no_id = test |>
+  select(-ID_LAT_LON_YEAR_WEEK)
+
+imputed_df = preProcess(test_no_id, method = "bagImpute")
+
+test2 = predict(imputed_df, newdata = test_no_id) |>
+  mutate(ID_LAT_LON_YEAR_WEEK = test$ID_LAT_LON_YEAR_WEEK) |>
+  select(75, 1:74)
+
+if (sum(is.na(train2)) == 0 & sum(is.na(test2)) == 0) {
+  print("All NA values in training and testing data imputed")
+} else {
+  message("Imputation failed; NA values still in data")
+}
+```
+
+### Modeling
+
+```{r}
+glimpse(train2)
+```
+
+
+
+
+
+
 
 
 
