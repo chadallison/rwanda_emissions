@@ -142,11 +142,144 @@ if (sum(is.na(train2)) == 0 & sum(is.na(test2)) == 0) {
 }
 ```
 
-### Modeling
+### Building Model
 
 ```{r}
-glimpse(train2)
+# removing ID variables
+train3 = train2 |>
+  select(-c(ID_LAT_LON_YEAR_WEEK, latitude, longitude, year, week_no))
+
+# splitting into training and testing data
+df_split = initial_split(
+  train3,
+  prop = 0.75,
+  strata = emission
+)
+
+# saving training and testing data from split
+df_train = training(df_split)
+df_test = testing(df_split)
+
+# data preprocessing
+pre_rec = recipe(emission ~ ., data = df_train) |>
+  step_corr(all_predictors(), threshold = 0.7) |>
+  prep()
+
+# creating cross-validation folds
+cv_folds = bake(pre_rec, new_data = df_train) |>
+  vfold_cv(v = 5)
+
+# model specification
+xgb_mod = boost_tree(
+  mode = "regression",
+  trees = 1000,
+  min_n = tune(),
+  tree_depth = tune(),
+  learn_rate = tune(),
+  loss_reduction = tune()) |>
+  set_engine("xgboost", objective = "reg:squarederror")
+
+# tuning parameter specification
+xgb_params = parameters(
+  min_n(),
+  tree_depth(),
+  learn_rate(),
+  loss_reduction()
+)
+
+# setting grid space
+xgb_grid = grid_max_entropy(
+  xgb_params,
+  size = 25
+)
+
+# setting up workflow
+xgb_wf = workflow() |>
+  add_model(xgb_mod) |>
+  add_formula(emission ~ .)
+
+# tuning model
+# xgb_tuned = tune_grid(
+#   object = xgb_wf,
+#   resamples = cv_folds,
+#   grid = xgb_grid,
+#   metrics = metric_set(rmse, rsq, mae),
+#   control = control_grid(verbose = T)
+# )
+
+# showing best tuned model
+# xgb_tuned |>
+#   show_best(metric = "rmse")
+
+# pre-tuned model and these were best metrics - tuning took around 9 hours
+xgb_best_params = data.frame(
+  min_n = 33,
+  tree_depth = 15,
+  learn_rate = 0.003650263,
+  loss_reduction = 1.65734e-10
+)
+
+# finalizing model
+xgb_final = xgb_mod |>
+  finalize_model(xgb_best_params)
 ```
+
+### Evaluating Model
+
+```{r}
+train_processed = bake(pre_rec, new_data = df_train)
+
+train_prediction = xgb_final |>
+  fit(
+    formula = emission ~ .,
+    data = train_processed
+  ) |>
+  predict(new_data = train_processed) |>
+  bind_cols(df_train)
+
+xgb_score_train = train_prediction |>
+  metrics(emission, .pred) |>
+  mutate(.estimate = format(round(.estimate, 2), big.mark = ","))
+
+test_processed = bake(pre_rec, new_data = df_test)
+
+test_prediction = xgb_final |>
+  fit(
+    formula = emission ~ .,
+    data = test_processed
+  ) |>
+  predict(new_data = test_processed) |>
+  bind_cols(df_test)
+
+xgb_score_test = test_prediction |>
+  metrics(emission, .pred) |>
+  mutate(.estimate = format(round(.estimate, 2), big.mark = ","))
+
+xgb_score_train |>
+  mutate(set = "train") |>
+  rbind(xgb_score_test |>
+  mutate(set = "test")) |>
+  select(metric = .metric, estimate = .estimate, set) |>
+  pivot_wider(id_cols = set, names_from = "metric", values_from = "estimate")
+```
+
+### Making Final Predictions
+
+```{r}
+final_predictions = xgb_final |>
+  fit(
+    formula = emission ~ .,
+    data = bake(pre_rec, new_data = train3)
+  ) |>
+  predict(new_data = test2)
+
+final_sub_data = cbind(test2, final_predictions) |>
+  select(ID_LAT_LON_YEAR_WEEK, emission = .pred)
+
+write_csv(final_sub_data, "data/final_submission.csv")
+```
+
+
 
 
 
